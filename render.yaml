@@ -1,0 +1,62 @@
+services:
+  # Telegram Bot (Background Worker - does not sleep)
+  - type: worker
+    name: telegram-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        value: "-1003814300159"
+      - key: ADMIN_ID
+        value: "8506998399"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        value: "price_1T2i76AEty6YzLTj0GTpEvZT"
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: DB_PATH
+        value: "/data/bot.db"
+    disk:
+      name: bot-data
+      mountPath: /data
+      sizeGB: 1
+
+  # Stripe Webhook Receiver (Web Service)
+  - type: web
+    name: telegram-bot-webhook
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn webhook.stripe_webhook:app
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        value: "-1003814300159"
+      - key: ADMIN_ID
+        value: "8506998399"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        value: "price_1T2i76AEty6YzLTj0GTpEvZT"
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: DB_PATH
+        value: "/data/bot.db"
+    disk:
+      name: bot-data
+      mountPath: /data
+      sizeGB: 1
