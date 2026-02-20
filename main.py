@@ -1,0 +1,46 @@
+import logging
+from telegram.ext import (Application, CommandHandler,
+                           CallbackQueryHandler, MessageHandler, filters)
+
+from bot.config import BOT_TOKEN
+from bot.database import init_db
+from bot.handlers.start import start, back_to_menu, main_menu_keyboard
+from bot.handlers.subscribe import subscribe_conv
+from bot.handlers.activation import activation_conv
+from bot.handlers.login import login_conv, setup_credentials_conv
+from bot.handlers.video_list import video_list_handler
+from bot.handlers.help import help_conv
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+def main():
+    # Initialize database
+    init_db()
+    logger.info("Database initialized")
+
+    # Build application
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # Register conversation handlers (order matters)
+    app.add_handler(subscribe_conv)
+    app.add_handler(activation_conv)
+    app.add_handler(login_conv)
+    app.add_handler(setup_credentials_conv)
+    app.add_handler(help_conv)
+
+    # Register command handlers
+    app.add_handler(CommandHandler("start", start))
+
+    # Register simple callback handlers
+    app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
+    app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
+
+    logger.info("Bot started — polling...")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
