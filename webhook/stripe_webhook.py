@@ -1,95 +1,195 @@
 import stripe
 import asyncio
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from telegram import Bot
-from bot.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, BOT_TOKEN, ADMIN_ID
-from bot.database import store_activation_code, create_subscriber, deactivate_subscriber
+from bot.config import (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+                         BOT_TOKEN, ADMIN_ID)
+from bot.database import (store_activation_code, create_subscriber,
+                            deactivate_subscriber, init_db, get_conn)
 from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link
 from bot.email_service import send_activation_email
 
 stripe.api_key = STRIPE_SECRET_KEY
+
 app = Flask(__name__)
 
 # Initialize database on startup
-from bot.database import init_db
 init_db()
 
 @app.route("/webhook/stripe", methods=["POST"])
 def stripe_webhook():
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
+
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
     except stripe.error.SignatureVerificationError:
         return jsonify({"error": "Invalid signature"}), 400
+
     if event["type"] == "checkout.session.completed":
         asyncio.run(handle_payment_success(event["data"]["object"]))
-    elif event["type"] == "customer.subscription.deleted":
-        asyncio.run(handle_subscription_cancelled(event["data"]["object"]))
+
+    elif event["type"] == "invoice.paid":
+        asyncio.run(handle_renewal_success(event["data"]["object"]))
+
     elif event["type"] == "invoice.payment_failed":
         asyncio.run(handle_payment_failed(event["data"]["object"]))
+
+    elif event["type"] == "customer.subscription.deleted":
+        asyncio.run(handle_subscription_cancelled(event["data"]["object"]))
+
     return jsonify({"status": "ok"}), 200
 
+
 async def handle_payment_success(session):
+    """Called when a new Stripe checkout is completed."""
     telegram_id_str = session.get("metadata", {}).get("telegram_id")
     email = session.get("customer_email") or session.get("metadata", {}).get("email")
+    stripe_customer_id = session.get("customer")
+    stripe_subscription_id = session.get("subscription")
+
     if not telegram_id_str or not email:
+        print("Missing telegram_id or email in session metadata")
         return
+
     telegram_id = int(telegram_id_str)
     activation_code = generate_activation_code()
     transaction_id = session.get("payment_intent") or generate_transaction_id()
     invite_link = await generate_invite_link()
+
     store_activation_code(activation_code, transaction_id, email)
-    create_subscriber(telegram_id=telegram_id, email=email, activation_code=activation_code,
-                       transaction_id=transaction_id,
-                       stripe_customer_id=session.get("customer") or "",
-                       stripe_subscription_id=session.get("subscription") or "")
+    create_subscriber(
+        telegram_id=telegram_id,
+        email=email,
+        activation_code=activation_code,
+        transaction_id=transaction_id,
+        stripe_customer_id=stripe_customer_id or "",
+        stripe_subscription_id=stripe_subscription_id or ""
+    )
+
     send_activation_email(email, activation_code, transaction_id, invite_link)
+
     bot = Bot(token=BOT_TOKEN)
     try:
         await bot.send_message(
             chat_id=telegram_id,
-            text=f"🎉 *Payment Confirmed!*\n\n"
+            text=f"🎉 *Payment Confirmed! Welcome to Premium Access*\n\n"
+                 f"Here are your access details — save these:\n\n"
                  f"🔑 Activation Code: `{activation_code}`\n"
                  f"🧾 Transaction ID: `{transaction_id}`\n\n"
                  f"📺 [Join Private Channel]({invite_link})\n\n"
-                 f"_Details also sent to {email}_",
-            parse_mode="Markdown")
+                 f"_Your activation code and channel link have also been sent to {email}_\n\n"
+                 f"Once inside the channel, you may optionally set up login credentials "
+                 f"via the bot menu for faster future access.",
+            parse_mode="Markdown"
+        )
     except Exception as e:
-        print(f"Telegram message error: {e}")
+        print(f"Error sending Telegram message: {e}")
+
+
+async def handle_renewal_success(invoice):
+    """Called every time a subscription renewal payment succeeds.
+    Updates expires_at by 30 days to keep access active."""
+    stripe_customer_id = invoice.get("customer")
+    stripe_subscription_id = invoice.get("subscription")
+
+    # Skip if this is the very first payment (handled by checkout.session.completed)
+    billing_reason = invoice.get("billing_reason")
+    if billing_reason == "subscription_create":
+        return
+
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
+        (stripe_customer_id,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        print(f"No subscriber found for customer {stripe_customer_id}")
+        return
+
+    # Extend expiry by 30 days from now
+    new_expires = (datetime.utcnow() + timedelta(days=30)).isoformat()
+    conn.execute(
+        "UPDATE subscribers SET expires_at = ?, is_active = 1 WHERE stripe_customer_id = ?",
+        (new_expires, stripe_customer_id)
+    )
+    conn.commit()
+    conn.close()
+
+    print(f"Renewed subscription for customer {stripe_customer_id} until {new_expires}")
+
+    # Notify user
+    bot = Bot(token=BOT_TOKEN)
+    try:
+        invite_link = await generate_invite_link()
+        await bot.send_message(
+            chat_id=row["telegram_id"],
+            text=f"✅ *Subscription Renewed!*\n\n"
+                 f"Your premium access has been extended for another 30 days.\n\n"
+                 f"📺 [Rejoin Channel if needed]({invite_link})",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Error sending renewal message: {e}")
+
+
+async def handle_payment_failed(invoice):
+    """Called when a renewal payment fails. Warns user."""
+    stripe_customer_id = invoice.get("customer")
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
+        (stripe_customer_id,)
+    ).fetchone()
+    conn.close()
+
+    if row:
+        bot = Bot(token=BOT_TOKEN)
+        try:
+            await bot.send_message(
+                chat_id=row["telegram_id"],
+                text="⚠️ *Payment Failed*\n\n"
+                     "We couldn't process your subscription renewal.\n"
+                     "Please update your payment method to maintain access.\n\n"
+                     "Use /start → Subscribe to resubscribe.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Error notifying failed payment: {e}")
+
 
 async def handle_subscription_cancelled(subscription):
-    from bot.database import get_conn
+    """Called when subscription is cancelled. Removes user from channel."""
+    stripe_sub_id = subscription.get("id")
     conn = get_conn()
-    row = conn.execute("SELECT * FROM subscribers WHERE stripe_subscription_id = ?",
-                        (subscription.get("id"),)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE stripe_subscription_id = ?",
+        (stripe_sub_id,)
+    ).fetchone()
     conn.close()
+
     if row:
         from bot.utils import revoke_user_from_channel
         deactivate_subscriber(row["telegram_id"])
         await revoke_user_from_channel(row["telegram_id"])
-        bot = Bot(token=BOT_TOKEN)
-        try:
-            await bot.send_message(chat_id=row["telegram_id"],
-                                    text="⚠️ *Subscription ended.* Use /start to resubscribe.",
-                                    parse_mode="Markdown")
-        except Exception as e:
-            print(f"Error: {e}")
 
-async def handle_payment_failed(invoice):
-    from bot.database import get_conn
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM subscribers WHERE stripe_customer_id = ?",
-                        (invoice.get("customer"),)).fetchone()
-    conn.close()
-    if row:
         bot = Bot(token=BOT_TOKEN)
         try:
-            await bot.send_message(chat_id=row["telegram_id"],
-                                    text="⚠️ *Payment failed.* Please update your payment method.\nUse /start → Subscribe.",
-                                    parse_mode="Markdown")
+            await bot.send_message(
+                chat_id=row["telegram_id"],
+                text="⚠️ *Your subscription has ended.*\n\n"
+                     "You have been removed from the private channel.\n"
+                     "Use /start to resubscribe anytime.",
+                parse_mode="Markdown"
+            )
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error notifying cancelled user: {e}")
+
 
 @app.route("/success")
 def payment_success():
