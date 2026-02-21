@@ -10,6 +10,10 @@ from bot.email_service import send_activation_email
 stripe.api_key = STRIPE_SECRET_KEY
 app = Flask(__name__)
 
+# Initialize database on startup
+from bot.database import init_db
+init_db()
+
 @app.route("/webhook/stripe", methods=["POST"])
 def stripe_webhook():
     payload = request.data
