@@ -1,3 +1,9 @@
+from telegram.ext import CommandHandler
+from bot.handlers.start import start
+async def cancel(update, context):
+    context.user_data.clear()
+    await update.message.reply_text("✅ Cancelled. Use /start to return to menu.")
+    return ConversationHandler.END
 import stripe
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler,
@@ -144,6 +150,8 @@ help_conv = ConversationHandler(
         CallbackQueryHandler(cancel_start, pattern="^cancel_membership$"),
         CallbackQueryHandler(resend_start, pattern="^resend_code$"),
         CallbackQueryHandler(inquiry_start, pattern="^write_inquiry$"),
+        CommandHandler("cancel", cancel),
+        CommandHandler("start", start),
     ],
     per_message=False
 )
