@@ -145,6 +145,10 @@ activation_conv = ConversationHandler(
     states={
         ENTER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, activation_check)],
     },
-    fallbacks=[CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")],
+    fallbacks=[
+        CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
+        CommandHandler("cancel", cancel),
+        CommandHandler("start", start),
+    ],
     per_message=False
 )
