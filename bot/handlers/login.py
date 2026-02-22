@@ -1,3 +1,9 @@
+from telegram.ext import CommandHandler
+from bot.handlers.start import start
+async def cancel(update, context):
+    context.user_data.clear()
+    await update.message.reply_text("✅ Cancelled. Use /start to return to menu.")
+    return ConversationHandler.END
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler,
                            MessageHandler, filters, CallbackQueryHandler)
@@ -87,7 +93,10 @@ setup_credentials_conv = ConversationHandler(
         SETUP_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_get_password)],
         SETUP_CONFIRM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_confirm_password)],
     },
-    fallbacks=[CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")],
+    fallbacks=[
+    CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
+    CommandHandler("cancel", cancel),
+    CommandHandler("start", start),
     per_message=False
 )
 
@@ -97,6 +106,9 @@ login_conv = ConversationHandler(
         LOGIN_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_get_username)],
         LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_get_password)],
     },
-    fallbacks=[CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")],
+    fallbacks=[
+    CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
+    CommandHandler("cancel", cancel),
+    CommandHandler("start", start),
     per_message=False
 )
