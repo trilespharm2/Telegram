@@ -50,7 +50,13 @@ async def subscribe_get_email(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 subscribe_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(subscribe_start, pattern="^subscribe$")],
-    states={ASK_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, subscribe_get_email)]},
-    fallbacks=[CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")],
+    states={
+        ASK_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, subscribe_get_email)],
+    },
+    fallbacks=[
+        CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
+        CommandHandler("cancel", cancel),
+        CommandHandler("start", start),
+    ],
     per_message=False
 )
