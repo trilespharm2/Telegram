@@ -135,6 +135,7 @@ setup_credentials_conv = ConversationHandler(
         CommandHandler("start", start),
     ],
     per_message=False
+    allow_reentry=True
 )
 
 login_conv = ConversationHandler(
@@ -149,4 +150,5 @@ login_conv = ConversationHandler(
         CommandHandler("start", start),
     ],
     per_message=False
+    allow_reentry=True
 )
