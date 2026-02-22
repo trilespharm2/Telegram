@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler, MessageHandler,
                            filters, CallbackQueryHandler, CommandHandler)
 from bot.config import STRIPE_SECRET_KEY, STRIPE_PRICE_ID, WEBHOOK_URL
-from bot.handlers.start import back_to_menu, start
+from bot.handlers.start import back_to_menu
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -50,8 +50,10 @@ async def subscribe_get_email(update: Update, context: ContextTypes.DEFAULT_TYPE
             cancel_url=f"{WEBHOOK_URL}/cancel",
         )
 
-        keyboard = [[InlineKeyboardButton("💳 Pay Now", url=session.url)],
-                    [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+        keyboard = [
+            [InlineKeyboardButton("💳 Pay Now", url=session.url)],
+            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+        ]
 
         await update.message.reply_text(
             f"✅ *Almost there!*\n\n"
@@ -79,8 +81,6 @@ subscribe_conv = ConversationHandler(
     fallbacks=[
         CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
         CommandHandler("cancel", cancel),
-        CommandHandler("start", start),
     ],
     per_message=False
-    allow_reentry=True
 )
