@@ -230,4 +230,5 @@ help_conv = ConversationHandler(
         CommandHandler("start", start),
     ],
     per_message=False
+    allow_reentry=True
 )
