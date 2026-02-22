@@ -9,7 +9,7 @@ from bot.database import (get_subscriber, get_subscriber_by_code,
                            get_code_by_email, save_inquiry)
 from bot.utils import revoke_user_from_channel, generate_invite_link
 from bot.email_service import send_cancellation_email, send_activation_email
-from bot.handlers.start import back_to_menu, start
+from bot.handlers.start import back_to_menu
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -158,7 +158,6 @@ async def resend_by_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     send_activation_email(email, record["code"], record["transaction_id"], invite_link)
-
     return ConversationHandler.END
 
 # ── Write Inquiry ────────────────────────────────────────────────────
@@ -227,8 +226,6 @@ help_conv = ConversationHandler(
         CallbackQueryHandler(resend_start, pattern="^resend_code$"),
         CallbackQueryHandler(inquiry_start, pattern="^write_inquiry$"),
         CommandHandler("cancel", cancel),
-        CommandHandler("start", start),
     ],
     per_message=False
-    allow_reentry=True
 )
