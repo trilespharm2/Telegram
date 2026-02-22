@@ -91,13 +91,11 @@ async def handle_payment_success(session):
 
 
 async def handle_renewal_success(invoice):
-    """Called every time a subscription renewal payment succeeds.
-    Updates expires_at by 30 days to keep access active."""
+    """Called every time a subscription renewal payment succeeds."""
     stripe_customer_id = invoice.get("customer")
-    stripe_subscription_id = invoice.get("subscription")
-
-    # Skip if this is the very first payment (handled by checkout.session.completed)
     billing_reason = invoice.get("billing_reason")
+
+    # Skip first payment — handled by checkout.session.completed
     if billing_reason == "subscription_create":
         return
 
@@ -112,7 +110,6 @@ async def handle_renewal_success(invoice):
         print(f"No subscriber found for customer {stripe_customer_id}")
         return
 
-    # Extend expiry by 30 days from now
     new_expires = (datetime.utcnow() + timedelta(days=30)).isoformat()
     conn.execute(
         "UPDATE subscribers SET expires_at = ?, is_active = 1 WHERE stripe_customer_id = ?",
@@ -123,7 +120,6 @@ async def handle_renewal_success(invoice):
 
     print(f"Renewed subscription for customer {stripe_customer_id} until {new_expires}")
 
-    # Notify user
     bot = Bot(token=BOT_TOKEN)
     try:
         invite_link = await generate_invite_link()
@@ -166,29 +162,48 @@ async def handle_payment_failed(invoice):
 async def handle_subscription_cancelled(subscription):
     """Called when subscription is cancelled. Removes user from channel."""
     stripe_sub_id = subscription.get("id")
+    stripe_customer_id = subscription.get("customer")
+
+    print(f"Cancellation received — sub_id={stripe_sub_id}, customer={stripe_customer_id}")
+
     conn = get_conn()
+
+    # Try by subscription ID first
     row = conn.execute(
         "SELECT * FROM subscribers WHERE stripe_subscription_id = ?",
         (stripe_sub_id,)
     ).fetchone()
+
+    # Fall back to customer ID
+    if not row:
+        row = conn.execute(
+            "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
+            (stripe_customer_id,)
+        ).fetchone()
+
     conn.close()
 
-    if row:
-        from bot.utils import revoke_user_from_channel
-        deactivate_subscriber(row["telegram_id"])
-        await revoke_user_from_channel(row["telegram_id"])
+    if not row:
+        print(f"No subscriber found for sub_id={stripe_sub_id} or customer={stripe_customer_id}")
+        return
 
-        bot = Bot(token=BOT_TOKEN)
-        try:
-            await bot.send_message(
-                chat_id=row["telegram_id"],
-                text="⚠️ *Your subscription has ended.*\n\n"
-                     "You have been removed from the private channel.\n"
-                     "Use /start to resubscribe anytime.",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Error notifying cancelled user: {e}")
+    print(f"Found subscriber telegram_id={row['telegram_id']} — revoking access")
+
+    from bot.utils import revoke_user_from_channel
+    deactivate_subscriber(row["telegram_id"])
+    await revoke_user_from_channel(row["telegram_id"])
+
+    bot = Bot(token=BOT_TOKEN)
+    try:
+        await bot.send_message(
+            chat_id=row["telegram_id"],
+            text="⚠️ *Your subscription has ended.*\n\n"
+                 "You have been removed from the private channel.\n"
+                 "Use /start to resubscribe anytime.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Error notifying cancelled user: {e}")
 
 
 @app.route("/success")
