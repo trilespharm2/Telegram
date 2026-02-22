@@ -1,3 +1,9 @@
+from telegram.ext import CommandHandler
+from bot.handlers.start import start
+async def cancel(update, context):
+    context.user_data.clear()
+    await update.message.reply_text("✅ Cancelled. Use /start to return to menu.")
+    return ConversationHandler.END
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler,
                            MessageHandler, filters, CallbackQueryHandler)
