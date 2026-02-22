@@ -32,28 +32,34 @@ def main():
     init_db()
     logger.info("Database initialized")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .get_updates_connect_timeout(10)
+        .get_updates_read_timeout(10)
+        .get_updates_write_timeout(10)
+        .build()
+    )
 
+    # Register conversation handlers (order matters)
     app.add_handler(subscribe_conv)
     app.add_handler(activation_conv)
     app.add_handler(login_conv)
     app.add_handler(setup_credentials_conv)
     app.add_handler(help_conv)
 
+    # Register command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
 
+    # Register simple callback handlers
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
 
     logger.info("Bot started — polling...")
     app.run_polling(
         drop_pending_updates=True,
-        poll_interval=0.5,
-        timeout=10,
-        connect_timeout=10,
-        read_timeout=10,
-        write_timeout=10
+        poll_interval=0.5
     )
 
 if __name__ == "__main__":
