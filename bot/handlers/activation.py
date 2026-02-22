@@ -159,4 +159,5 @@ activation_conv = ConversationHandler(
         CommandHandler("cancel", cancel),
     ],
     per_message=False
+    allow_reentry=True
 )
