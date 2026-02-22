@@ -6,15 +6,14 @@ from telegram import Bot
 from bot.config import (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
                          BOT_TOKEN, ADMIN_ID)
 from bot.database import (store_activation_code, create_subscriber,
-                            deactivate_subscriber, init_db, get_conn)
+                            deactivate_subscriber, deactivate_subscriber_by_stripe_customer,
+                            init_db, get_conn, get_subscriber_by_stripe_customer,
+                            get_subscriber_by_stripe_subscription, get_subscriber_by_email)
 from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link
 from bot.email_service import send_activation_email
 
 stripe.api_key = STRIPE_SECRET_KEY
-
 app = Flask(__name__)
-
-# Initialize database on startup
 init_db()
 
 @app.route("/webhook/stripe", methods=["POST"])
@@ -31,13 +30,10 @@ def stripe_webhook():
 
     if event["type"] == "checkout.session.completed":
         asyncio.run(handle_payment_success(event["data"]["object"]))
-
     elif event["type"] == "invoice.paid":
         asyncio.run(handle_renewal_success(event["data"]["object"]))
-
     elif event["type"] == "invoice.payment_failed":
         asyncio.run(handle_payment_failed(event["data"]["object"]))
-
     elif event["type"] == "customer.subscription.deleted":
         asyncio.run(handle_subscription_cancelled(event["data"]["object"]))
 
@@ -70,6 +66,8 @@ async def handle_payment_success(session):
         stripe_subscription_id=stripe_subscription_id or ""
     )
 
+    print(f"Subscriber created: telegram_id={telegram_id}, customer={stripe_customer_id}, sub={stripe_subscription_id}")
+
     send_activation_email(email, activation_code, transaction_id, invite_link)
 
     bot = Bot(token=BOT_TOKEN)
@@ -95,21 +93,15 @@ async def handle_renewal_success(invoice):
     stripe_customer_id = invoice.get("customer")
     billing_reason = invoice.get("billing_reason")
 
-    # Skip first payment — handled by checkout.session.completed
     if billing_reason == "subscription_create":
         return
 
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
-        (stripe_customer_id,)
-    ).fetchone()
-
+    row = get_subscriber_by_stripe_customer(stripe_customer_id)
     if not row:
-        conn.close()
-        print(f"No subscriber found for customer {stripe_customer_id}")
+        print(f"Renewal: No subscriber found for customer {stripe_customer_id}")
         return
 
+    conn = get_conn()
     new_expires = (datetime.utcnow() + timedelta(days=30)).isoformat()
     conn.execute(
         "UPDATE subscribers SET expires_at = ?, is_active = 1 WHERE stripe_customer_id = ?",
@@ -135,14 +127,9 @@ async def handle_renewal_success(invoice):
 
 
 async def handle_payment_failed(invoice):
-    """Called when a renewal payment fails. Warns user."""
+    """Called when a renewal payment fails."""
     stripe_customer_id = invoice.get("customer")
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
-        (stripe_customer_id,)
-    ).fetchone()
-    conn.close()
+    row = get_subscriber_by_stripe_customer(stripe_customer_id)
 
     if row:
         bot = Bot(token=BOT_TOKEN)
@@ -166,28 +153,28 @@ async def handle_subscription_cancelled(subscription):
 
     print(f"Cancellation received — sub_id={stripe_sub_id}, customer={stripe_customer_id}")
 
-    conn = get_conn()
-
-    # Try by subscription ID first
-    row = conn.execute(
-        "SELECT * FROM subscribers WHERE stripe_subscription_id = ?",
-        (stripe_sub_id,)
-    ).fetchone()
-
-    # Fall back to customer ID
-    if not row:
-        row = conn.execute(
-            "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
-            (stripe_customer_id,)
-        ).fetchone()
-
-    conn.close()
+    # Try every possible lookup method
+    row = get_subscriber_by_stripe_subscription(stripe_sub_id)
 
     if not row:
-        print(f"No subscriber found for sub_id={stripe_sub_id} or customer={stripe_customer_id}")
+        row = get_subscriber_by_stripe_customer(stripe_customer_id)
+
+    if not row:
+        # Last resort — fetch email from Stripe and look up by email
+        try:
+            customer = stripe.Customer.retrieve(stripe_customer_id)
+            email = customer.get("email")
+            if email:
+                print(f"Falling back to email lookup: {email}")
+                row = get_subscriber_by_email(email)
+        except Exception as e:
+            print(f"Error fetching Stripe customer: {e}")
+
+    if not row:
+        print(f"FATAL: No subscriber found for sub={stripe_sub_id}, customer={stripe_customer_id}")
         return
 
-    print(f"Found subscriber telegram_id={row['telegram_id']} — revoking access")
+    print(f"Found subscriber telegram_id={row['telegram_id']} email={row['email']} — revoking access")
 
     from bot.utils import revoke_user_from_channel
     deactivate_subscriber(row["telegram_id"])
