@@ -5,7 +5,7 @@ from telegram.ext import (ContextTypes, ConversationHandler,
 from bot.database import (get_subscriber, update_subscriber_credentials,
                            is_active_subscriber)
 from bot.utils import generate_invite_link, hash_password, verify_password
-from bot.handlers.start import back_to_menu, start
+from bot.handlers.start import back_to_menu
 
 # States for setup flow
 SETUP_USERNAME, SETUP_PASSWORD, SETUP_CONFIRM = range(3)
@@ -110,8 +110,10 @@ async def login_get_password(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     invite_link = await generate_invite_link()
-    keyboard = [[InlineKeyboardButton("📺 Join Channel", url=invite_link)],
-                [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("📺 Join Channel", url=invite_link)],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+    ]
 
     await update.message.reply_text(
         "✅ *Login successful!*\n\nHere's your channel access link:",
@@ -127,15 +129,13 @@ setup_credentials_conv = ConversationHandler(
     states={
         SETUP_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_get_username)],
         SETUP_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_get_password)],
-        SETUP_CONFIRM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_confirm_password)],
+        SETUP_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, setup_confirm_password)],
     },
     fallbacks=[
         CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
         CommandHandler("cancel", cancel),
-        CommandHandler("start", start),
     ],
     per_message=False
-    allow_reentry=True
 )
 
 login_conv = ConversationHandler(
@@ -147,8 +147,6 @@ login_conv = ConversationHandler(
     fallbacks=[
         CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
         CommandHandler("cancel", cancel),
-        CommandHandler("start", start),
     ],
     per_message=False
-    allow_reentry=True
 )
