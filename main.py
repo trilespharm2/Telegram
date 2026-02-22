@@ -1,6 +1,8 @@
 import logging
+from telegram import Update
 from telegram.ext import (Application, CommandHandler,
-                           CallbackQueryHandler, MessageHandler, filters)
+                           CallbackQueryHandler, MessageHandler, filters,
+                           ContextTypes, ConversationHandler)
 
 from bot.config import BOT_TOKEN
 from bot.database import init_db
@@ -16,6 +18,15 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel any active conversation and return to main menu."""
+    context.user_data.clear()
+    await update.message.reply_text(
+        "✅ Action cancelled. Returning to main menu...",
+        reply_markup=main_menu_keyboard()
+    )
+    return ConversationHandler.END
 
 def main():
     # Initialize database
@@ -34,6 +45,7 @@ def main():
 
     # Register command handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel))
 
     # Register simple callback handlers
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
