@@ -2,7 +2,8 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 
-DB_PATH = os.getenv("DB_PATH", "data/bot.db")
+# Use absolute path on persistent volume
+DB_PATH = os.getenv("DB_PATH", "/data/bot.db")
 
 def get_conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -13,6 +14,7 @@ def get_conn():
 def init_db():
     conn = get_conn()
     c = conn.cursor()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,6 +31,7 @@ def init_db():
             is_active INTEGER DEFAULT 1
         )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS activation_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,6 +43,7 @@ def init_db():
             created_at TEXT
         )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS inquiries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,24 +53,60 @@ def init_db():
             created_at TEXT
         )
     """)
+
     conn.commit()
     conn.close()
 
+# ---------- Subscriber Operations ----------
+
 def get_subscriber(telegram_id):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM subscribers WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE telegram_id = ?", (telegram_id,)
+    ).fetchone()
     conn.close()
     return row
 
 def get_subscriber_by_code(code):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM subscribers WHERE activation_code = ?", (code,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE activation_code = ?", (code,)
+    ).fetchone()
     conn.close()
     return row
 
 def get_subscriber_by_transaction(transaction_id):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM subscribers WHERE transaction_id = ?", (transaction_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE transaction_id = ?", (transaction_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+def get_subscriber_by_email(email):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE email = ? ORDER BY subscribed_at DESC LIMIT 1",
+        (email,)
+    ).fetchone()
+    conn.close()
+    return row
+
+def get_subscriber_by_stripe_customer(stripe_customer_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE stripe_customer_id = ?",
+        (stripe_customer_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+def get_subscriber_by_stripe_subscription(stripe_subscription_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM subscribers WHERE stripe_subscription_id = ?",
+        (stripe_subscription_id,)
+    ).fetchone()
     conn.close()
     return row
 
@@ -86,16 +126,42 @@ def create_subscriber(telegram_id, email, activation_code, transaction_id,
     conn.commit()
     conn.close()
 
+def update_subscriber_stripe_ids(telegram_id, stripe_customer_id, stripe_subscription_id):
+    """Update Stripe IDs on existing subscriber record."""
+    conn = get_conn()
+    conn.execute(
+        """UPDATE subscribers
+           SET stripe_customer_id = ?, stripe_subscription_id = ?
+           WHERE telegram_id = ?""",
+        (stripe_customer_id, stripe_subscription_id, telegram_id)
+    )
+    conn.commit()
+    conn.close()
+
 def update_subscriber_credentials(telegram_id, username, password_hash):
     conn = get_conn()
-    conn.execute("UPDATE subscribers SET username = ?, password_hash = ? WHERE telegram_id = ?",
-                 (username, password_hash, telegram_id))
+    conn.execute(
+        "UPDATE subscribers SET username = ?, password_hash = ? WHERE telegram_id = ?",
+        (username, password_hash, telegram_id)
+    )
     conn.commit()
     conn.close()
 
 def deactivate_subscriber(telegram_id):
     conn = get_conn()
-    conn.execute("UPDATE subscribers SET is_active = 0 WHERE telegram_id = ?", (telegram_id,))
+    conn.execute(
+        "UPDATE subscribers SET is_active = 0 WHERE telegram_id = ?",
+        (telegram_id,)
+    )
+    conn.commit()
+    conn.close()
+
+def deactivate_subscriber_by_stripe_customer(stripe_customer_id):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE subscribers SET is_active = 0 WHERE stripe_customer_id = ?",
+        (stripe_customer_id,)
+    )
     conn.commit()
     conn.close()
 
@@ -107,6 +173,8 @@ def is_active_subscriber(telegram_id):
         return False
     expires = datetime.fromisoformat(row["expires_at"])
     return datetime.utcnow() < expires
+
+# ---------- Activation Code Operations ----------
 
 def store_activation_code(code, transaction_id, email):
     conn = get_conn()
@@ -121,14 +189,18 @@ def store_activation_code(code, transaction_id, email):
 
 def get_activation_code_record(code):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM activation_codes WHERE code = ?", (code,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM activation_codes WHERE code = ?", (code,)
+    ).fetchone()
     conn.close()
     return row
 
 def mark_code_used(code, telegram_id):
     conn = get_conn()
-    conn.execute("UPDATE activation_codes SET used = 1, telegram_id = ? WHERE code = ?",
-                 (telegram_id, code))
+    conn.execute(
+        "UPDATE activation_codes SET used = 1, telegram_id = ? WHERE code = ?",
+        (telegram_id, code)
+    )
     conn.commit()
     conn.close()
 
@@ -141,10 +213,14 @@ def get_code_by_email(email):
     conn.close()
     return row
 
+# ---------- Inquiry Operations ----------
+
 def save_inquiry(telegram_id, username, message):
     conn = get_conn()
     now = datetime.utcnow().isoformat()
-    conn.execute("INSERT INTO inquiries (telegram_id, username, message, created_at) VALUES (?, ?, ?, ?)",
-                 (telegram_id, username, message, now))
+    conn.execute("""
+        INSERT INTO inquiries (telegram_id, username, message, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, username, message, now))
     conn.commit()
     conn.close()
