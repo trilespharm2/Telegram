@@ -23,36 +23,38 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel any active conversation and return to main menu."""
     context.user_data.clear()
     await update.message.reply_text(
-        "✅ Action cancelled. Returning to main menu...",
+        "✅ Action cancelled. Use /start to return to the main menu.",
         reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
 
 def main():
-    # Initialize database
     init_db()
     logger.info("Database initialized")
 
-    # Build application
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Register conversation handlers (order matters)
     app.add_handler(subscribe_conv)
     app.add_handler(activation_conv)
     app.add_handler(login_conv)
     app.add_handler(setup_credentials_conv)
     app.add_handler(help_conv)
 
-    # Register command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
 
-    # Register simple callback handlers
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
 
     logger.info("Bot started — polling...")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(
+        drop_pending_updates=True,
+        poll_interval=0.5,
+        timeout=10,
+        connect_timeout=10,
+        read_timeout=10,
+        write_timeout=10
+    )
 
 if __name__ == "__main__":
     main()
