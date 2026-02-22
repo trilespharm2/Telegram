@@ -3,7 +3,8 @@ from telegram.ext import (ContextTypes, ConversationHandler,
                            MessageHandler, filters, CallbackQueryHandler,
                            CommandHandler)
 from bot.database import (get_activation_code_record, mark_code_used,
-                           create_subscriber, get_subscriber, is_active_subscriber, get_conn)
+                           create_subscriber, get_subscriber, is_active_subscriber,
+                           get_conn, update_subscriber_stripe_ids)
 from bot.utils import generate_invite_link
 from bot.handlers.start import back_to_menu
 
@@ -109,13 +110,14 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     invite_link = await generate_invite_link()
 
     # Check if webhook already created a subscriber record with Stripe IDs
-    # Update rather than replace to preserve stripe_customer_id and stripe_subscription_id
+    # If so, UPDATE telegram_id only — preserves stripe_customer_id and stripe_subscription_id
     conn = get_conn()
     existing = conn.execute(
         "SELECT * FROM subscribers WHERE activation_code = ?", (code,)
     ).fetchone()
 
     if existing:
+        print(f"Activation: found existing record, updating telegram_id to {telegram_id}, preserving Stripe IDs: customer={existing['stripe_customer_id']} sub={existing['stripe_subscription_id']}")
         conn.execute(
             "UPDATE subscribers SET telegram_id = ?, is_active = 1 WHERE activation_code = ?",
             (telegram_id, code)
@@ -124,6 +126,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
     else:
         conn.close()
+        print(f"Activation: no existing record found for code {code}, creating new subscriber")
         create_subscriber(
             telegram_id=telegram_id,
             email=record["email"],
@@ -159,5 +162,4 @@ activation_conv = ConversationHandler(
         CommandHandler("cancel", cancel),
     ],
     per_message=False
-    allow_reentry=True
 )
