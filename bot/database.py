@@ -28,9 +28,17 @@ def init_db():
             stripe_subscription_id TEXT,
             subscribed_at TEXT,
             expires_at TEXT,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            invite_link TEXT
         )
     """)
+
+    # Add invite_link column if upgrading from older schema
+    try:
+        c.execute("ALTER TABLE subscribers ADD COLUMN invite_link TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS activation_codes (
