@@ -95,3 +95,29 @@ def send_inquiry_email(from_email: str, username: str, telegram_id: int, message
     </div>
     """
     _send(ADMIN_EMAIL, f"📩 New Inquiry from @{username}", html_content)
+
+
+def send_login_credentials_email(to_email: str, username: str):
+    """Send login username reminder to subscriber's email."""
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+        <h2>🔑 Your Login Credentials</h2>
+        <p>You requested your login details for Premium Access.</p>
+
+        <div style="background: #f4f4f4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Username:</strong></p>
+            <h2 style="color: #2c3e50; letter-spacing: 2px;">{username}</h2>
+        </div>
+
+        <p style="color: #666;">
+            For security reasons, your password cannot be sent via email.<br>
+            If you have also forgotten your password, please contact support
+            via the bot's Help → Write Inquiry option.
+        </p>
+        <hr style="margin: 30px 0;">
+        <p style="color: #999; font-size: 12px;">
+            If you did not request this, please ignore this email.
+        </p>
+    </div>
+    """
+    _send(to_email, "🔑 Your Premium Bot Login Details", html_content)
