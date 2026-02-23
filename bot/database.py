@@ -111,10 +111,10 @@ def get_subscriber_by_stripe_subscription(stripe_subscription_id):
     return row
 
 def create_subscriber(telegram_id, email, activation_code, transaction_id,
-                       stripe_customer_id, stripe_subscription_id):
+                       stripe_customer_id, stripe_subscription_id, expires_days=30):
     conn = get_conn()
     now = datetime.utcnow().isoformat()
-    expires = (datetime.utcnow() + timedelta(days=30)).isoformat()
+    expires = (datetime.utcnow() + timedelta(days=expires_days)).isoformat()
     conn.execute("""
         INSERT OR REPLACE INTO subscribers
         (telegram_id, email, activation_code, transaction_id,
