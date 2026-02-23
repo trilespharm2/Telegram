@@ -9,8 +9,8 @@ from telegram.ext import ContextTypes
 
 VIDEO_FILE_ID = "BAACAgEAAyEFAATjWZn_AAMGaZvWBGX5sET7j6NZBfboNayfznYAAh0GAALwN9lErsU3Id1qQSg6BA"   # Paste your file_id here
 VIDEO_CAPTION = (
-    "🎬 *Premium Video*\n\n"
-    "📲 _New videos are uploaded regularly — check back often!_"
+    "*XXX Exclusive 🍑 Videos*\n\n"
+    "📲 _New videos💦 are uploaded regularly!_"
 )
 
 async def video_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -22,17 +22,17 @@ async def video_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if not VIDEO_FILE_ID:
         await query.edit_message_text(
-            "🎬 *Premium Video*\n\n"
+            "🎬 *XXX Exclusive 🍑 Videos*\n\n"
             "Video coming soon! Check back shortly.\n\n"
-            "📲 _New videos are uploaded regularly._",
+            "📲 _New videos💦 are uploaded regularly._",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
     await query.edit_message_text(
-        "🎬 *Premium Video*\n\n"
-        "📲 _New videos are uploaded regularly — check back often!_",
+        "*XXX Exclusive 🍑 Videos*\n\n"
+        "📲 _New videos💦 are uploaded regularly!_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
