@@ -5,7 +5,7 @@ from telegram.ext import (ContextTypes, ConversationHandler,
 from bot.database import (get_subscriber, get_subscriber_by_code,
                            update_subscriber_credentials, is_active_subscriber,
                            get_conn, get_code_by_email)
-from bot.utils import generate_invite_link, hash_password, verify_password, unban_user_for_channel
+from bot.utils import generate_and_store_invite_link, hash_password, verify_password, unban_user_for_channel
 from bot.email_service import send_login_credentials_email
 from bot.handlers.start import back_to_menu
 
@@ -236,7 +236,7 @@ async def login_get_password(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     await unban_user_for_channel(subscriber["telegram_id"])
-    invite_link = await generate_invite_link()
+    invite_link = await generate_and_store_invite_link(subscriber["telegram_id"])
     keyboard = [
         [InlineKeyboardButton("📺 Join Channel", url=invite_link)],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
