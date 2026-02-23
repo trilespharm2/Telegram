@@ -10,7 +10,7 @@ from bot.handlers.start import start, back_to_menu, main_menu_keyboard
 from bot.handlers.subscribe import subscribe_conv
 from bot.handlers.activation import activation_conv
 from bot.handlers.login import login_conv, setup_credentials_conv
-from bot.handlers.video_list import video_list_handler
+from bot.handlers.video_list import video_list_handler, capture_file_id
 from bot.handlers.help import help_conv
 
 logging.basicConfig(
@@ -20,10 +20,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancel any active conversation and return to main menu."""
     context.user_data.clear()
     await update.message.reply_text(
-        "✅ Action cancelled. Use /start to return to the main menu.",
+        "✅ Action cancelled.",
         reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
@@ -41,20 +40,23 @@ def main():
         .build()
     )
 
-    # Register conversation handlers (order matters)
+    # Conversation handlers
     app.add_handler(subscribe_conv)
     app.add_handler(activation_conv)
     app.add_handler(login_conv)
     app.add_handler(setup_credentials_conv)
     app.add_handler(help_conv)
 
-    # Register command handlers
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
 
-    # Register simple callback handlers
+    # Callback handlers
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
+
+    # Admin: capture file_id when video is sent to bot
+    app.add_handler(MessageHandler(filters.VIDEO, capture_file_id))
 
     logger.info("Bot started — polling...")
     app.run_polling(
