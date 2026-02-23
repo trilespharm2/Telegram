@@ -8,7 +8,7 @@ from bot.config import STRIPE_SECRET_KEY
 from bot.database import (get_activation_code_record, mark_code_used,
                            create_subscriber, get_subscriber, is_active_subscriber,
                            get_conn, get_subscriber_by_stripe_customer)
-from bot.utils import generate_invite_link, unban_user_for_channel
+from bot.utils import generate_invite_link, generate_and_store_invite_link, unban_user_for_channel
 from bot.handlers.start import back_to_menu
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -120,7 +120,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Active subscription confirmed by Stripe — unban and give access
         await unban_user_for_channel(telegram_id)
-        invite_link = await generate_invite_link()
+        invite_link = await generate_and_store_invite_link(telegram_id)
 
         # Update or create subscriber record with correct telegram_id
         customer_id = invoice.get("customer", "")
@@ -224,8 +224,6 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # Valid unused access code — grant access
-    invite_link = await generate_invite_link()
-
     conn = get_conn()
     existing = conn.execute(
         "SELECT * FROM subscribers WHERE activation_code = ?", (code,)
@@ -253,6 +251,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mark_code_used(code, telegram_id)
     await unban_user_for_channel(telegram_id)
+    invite_link = await generate_and_store_invite_link(telegram_id)
 
     keyboard = [
         [InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
