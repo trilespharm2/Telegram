@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 MAIN_MENU_TEXT = """
-👋 *Welcome to Premium Video Access*
+👋 *Welcome to Natural XXX🍑 Exclusive Video Access*
 
 Please select an option below:
 """
