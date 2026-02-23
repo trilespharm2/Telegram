@@ -4,13 +4,13 @@ from telegram.ext import (Application, CommandHandler,
                            CallbackQueryHandler, MessageHandler, filters,
                            ContextTypes, ConversationHandler)
 
-from bot.config import BOT_TOKEN
+from bot.config import BOT_TOKEN, ADMIN_ID
 from bot.database import init_db
 from bot.handlers.start import start, back_to_menu, main_menu_keyboard
 from bot.handlers.subscribe import subscribe_conv
 from bot.handlers.activation import activation_conv
 from bot.handlers.login import login_conv, setup_credentials_conv
-from bot.handlers.video_list import video_list_handler, capture_file_id
+from bot.handlers.video_list import video_list_handler
 from bot.handlers.help import help_conv
 
 logging.basicConfig(
@@ -26,6 +26,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
+
+async def capture_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin only: send a video to the bot to get its file_id."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if update.message.video:
+        file_id = update.message.video.file_id
+        print(f"VIDEO FILE_ID: {file_id}")
+        await update.message.reply_text(
+            f"✅ *Video file_id captured:*\n\n`{file_id}`\n\n"
+            "Copy this and paste it as `VIDEO_FILE_ID` in `video_list.py`",
+            parse_mode="Markdown"
+        )
 
 def main():
     init_db()
@@ -55,8 +68,8 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
 
-    # Admin: capture file_id when video is sent to bot
-    app.add_handler(MessageHandler(filters.VIDEO, capture_file_id))
+    # Admin: capture file_id when admin sends video to bot
+    app.add_handler(MessageHandler(filters.VIDEO & filters.User(ADMIN_ID), capture_file_id))
 
     logger.info("Bot started — polling...")
     app.run_polling(
