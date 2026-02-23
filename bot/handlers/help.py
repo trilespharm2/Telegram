@@ -90,8 +90,8 @@ async def cancel_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "⚠️ *Are you sure you want to cancel your subscription?*\n\n"
-        "You will immediately lose access to the private channel.\n\n"
-        "_This action cannot be undone. You would need to resubscribe to regain access._",
+        "🚫 *Your access will be immediately revoked* and you will be removed from the private channel.\n\n"
+        "_You would need to resubscribe to regain access._",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
