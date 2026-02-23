@@ -87,7 +87,7 @@ def main():
     app.run_polling(
         drop_pending_updates=True,
         poll_interval=0.5,
-        allowed_updates=["message", "callback_query", "chat_member"]
+        allowed_updates=Update.ALL_TYPES
     )
 
 if __name__ == "__main__":
