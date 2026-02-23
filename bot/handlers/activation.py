@@ -27,20 +27,33 @@ def looks_like_invoice_number(text: str) -> bool:
     return bool(re.match(r'^[A-Z0-9]{6,}-\d{4}$', text.upper()))
 
 async def lookup_by_invoice(invoice_number: str):
-    """Look up subscriber via Stripe invoice number."""
+    """Look up subscriber via Stripe invoice number. Also returns Stripe subscription status."""
     try:
         invoices = stripe.Invoice.list(limit=100)
         for invoice in invoices.auto_paging_iter():
             if invoice.get("number", "").upper() == invoice_number.upper():
                 customer_id = invoice.get("customer")
+                subscription_id = invoice.get("subscription")
+                stripe_active = False
+
+                # Check Stripe subscription status directly
+                if subscription_id:
+                    try:
+                        sub = stripe.Subscription.retrieve(subscription_id)
+                        stripe_active = sub.get("status") == "active"
+                    except Exception as e:
+                        print(f"Error retrieving subscription {subscription_id}: {e}")
+
                 if customer_id:
                     subscriber = get_subscriber_by_stripe_customer(customer_id)
                     if subscriber:
-                        return subscriber, invoice
-        return None, None
+                        return subscriber, invoice, stripe_active
+                    # No local record but Stripe confirms active — return invoice details
+                    return None, invoice, stripe_active
+        return None, None, False
     except Exception as e:
         print(f"Error looking up invoice {invoice_number}: {e}")
-        return None, None
+        return None, None, False
 
 async def activation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -99,9 +112,9 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🔍 Looking up your invoice, please wait...",
         )
-        subscriber, invoice = await lookup_by_invoice(code)
+        subscriber, invoice, stripe_active = await lookup_by_invoice(code)
 
-        if not subscriber:
+        if not invoice:
             await update.message.reply_text(
                 "❌ *Invoice not found.*\n\n"
                 "Please check the invoice number and try again, or enter your "
@@ -112,13 +125,14 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ENTER_CODE
 
-        if not subscriber["is_active"]:
+        # Trust Stripe status over local database
+        if not stripe_active:
             keyboard = [
                 [InlineKeyboardButton("💳 Resubscribe", callback_data="subscribe")],
                 [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
             ]
             await update.message.reply_text(
-                "⚠️ *Subscription found but cancelled.*\n\n"
+                "⚠️ *Subscription found but not active.*\n\n"
                 f"Invoice: `{code}`\n\n"
                 "Please resubscribe to regain access.",
                 parse_mode="Markdown",
@@ -126,18 +140,38 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Active subscription found via invoice — give channel access
+        # Active subscription confirmed by Stripe — give channel access
         invite_link = await generate_invite_link()
 
-        # Update telegram_id on the subscriber record if different
-        if subscriber["telegram_id"] != telegram_id:
+        # Update or create subscriber record with correct telegram_id
+        customer_id = invoice.get("customer", "")
+        subscription_id = invoice.get("subscription", "")
+        email = invoice.get("customer_email", "")
+
+        if subscriber:
+            # Update telegram_id on existing record and reactivate
             conn = get_conn()
             conn.execute(
-                "UPDATE subscribers SET telegram_id = ? WHERE stripe_customer_id = ?",
-                (telegram_id, subscriber["stripe_customer_id"])
+                "UPDATE subscribers SET telegram_id = ?, is_active = 1 WHERE stripe_customer_id = ?",
+                (telegram_id, customer_id)
             )
             conn.commit()
             conn.close()
+        else:
+            # No local record — create one now
+            from bot.utils import generate_activation_code, generate_transaction_id
+            from bot.database import store_activation_code
+            new_code = generate_activation_code()
+            new_txn = generate_transaction_id()
+            store_activation_code(new_code, new_txn, email)
+            create_subscriber(
+                telegram_id=telegram_id,
+                email=email,
+                activation_code=new_code,
+                transaction_id=new_txn,
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=subscription_id
+            )
 
         keyboard = [
             [InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
