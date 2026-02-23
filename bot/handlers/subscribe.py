@@ -9,7 +9,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 ASK_EMAIL = 1
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("✅ Cancelled. Use /start to return to the menu.")
     return ConversationHandler.END
@@ -17,19 +17,25 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def subscribe_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
     await query.edit_message_text(
         "💳 *Subscribe to Premium Access*\n\n"
-        "Please enter your email address so we can send your activation code after payment:",
-        parse_mode="Markdown"
+        "Please enter your email address so we can send your access code after payment:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ASK_EMAIL
 
 async def subscribe_get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = update.message.text.strip()
+    back_keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
 
     if "@" not in email or "." not in email:
         await update.message.reply_text(
-            "⚠️ That doesn't look like a valid email. Please try again:"
+            "⚠️ *That doesn't look like a valid email address.*\n\n"
+            "Please enter a valid email (e.g. name@example.com):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(back_keyboard)
         )
         return ASK_EMAIL
 
@@ -58,7 +64,7 @@ async def subscribe_get_email(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"✅ *Almost there!*\n\n"
             f"Click the button below to complete your payment.\n\n"
-            f"After payment, your *activation code*, *transaction ID*, and "
+            f"After payment, your *access code*, *transaction ID*, and "
             f"*private channel link* will be sent to:\n`{email}`\n\n"
             f"_You'll also receive them here in Telegram._",
             parse_mode="Markdown",
@@ -68,7 +74,8 @@ async def subscribe_get_email(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         print(f"Stripe error: {e}")
         await update.message.reply_text(
-            "⚠️ Something went wrong creating your payment link. Please try again later."
+            "⚠️ Something went wrong creating your payment link. Please try again later.",
+            reply_markup=InlineKeyboardMarkup(back_keyboard)
         )
 
     return ConversationHandler.END
@@ -80,7 +87,8 @@ subscribe_conv = ConversationHandler(
     },
     fallbacks=[
         CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
-        CommandHandler("cancel", cancel),
+        CommandHandler("cancel", cancel_cmd),
+        CommandHandler("start", cancel_cmd),
     ],
     per_message=False
 )
