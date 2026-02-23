@@ -3,12 +3,12 @@ import asyncio
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from bot.config import (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-                         BOT_TOKEN, ADMIN_ID)
+from bot.config import (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, BOT_TOKEN, ADMIN_ID)
 from bot.database import (store_activation_code, create_subscriber,
-                            deactivate_subscriber, deactivate_subscriber_by_stripe_customer,
-                            init_db, get_conn, get_subscriber_by_stripe_customer,
-                            get_subscriber_by_stripe_subscription, get_subscriber_by_email)
+                            deactivate_subscriber, init_db, get_conn,
+                            get_subscriber_by_stripe_customer,
+                            get_subscriber_by_stripe_subscription,
+                            get_subscriber_by_email)
 from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link
 from bot.email_service import send_activation_email
 
@@ -22,9 +22,7 @@ def stripe_webhook():
     sig_header = request.headers.get("Stripe-Signature")
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except stripe.error.SignatureVerificationError:
         return jsonify({"error": "Invalid signature"}), 400
 
@@ -41,17 +39,29 @@ def stripe_webhook():
 
 
 async def handle_payment_success(session):
-    """Called when a new Stripe checkout is completed."""
+    """Handles both one-time and subscription checkout completions."""
     telegram_id_str = session.get("metadata", {}).get("telegram_id")
     email = session.get("customer_email") or session.get("metadata", {}).get("email")
     stripe_customer_id = session.get("customer")
-    stripe_subscription_id = session.get("subscription")
+    stripe_subscription_id = session.get("subscription") or ""
+    plan = session.get("metadata", {}).get("plan", "plan_monthly")
+    mode = session.get("mode", "subscription")
 
     if not telegram_id_str or not email:
         print("Missing telegram_id or email in session metadata")
         return
 
     telegram_id = int(telegram_id_str)
+
+    # For one-time payment, expires in 30 days and no subscription ID
+    if mode == "payment":
+        plan_label = "One Month Access"
+        expires_days = 30
+        stripe_subscription_id = ""
+    else:
+        plan_label = "Monthly Subscription"
+        expires_days = 30
+
     activation_code = generate_activation_code()
     transaction_id = session.get("payment_intent") or generate_transaction_id()
     invite_link = await generate_invite_link()
@@ -63,10 +73,11 @@ async def handle_payment_success(session):
         activation_code=activation_code,
         transaction_id=transaction_id,
         stripe_customer_id=stripe_customer_id or "",
-        stripe_subscription_id=stripe_subscription_id or ""
+        stripe_subscription_id=stripe_subscription_id,
+        expires_days=expires_days
     )
 
-    print(f"Subscriber created: telegram_id={telegram_id}, customer={stripe_customer_id}, sub={stripe_subscription_id}")
+    print(f"Subscriber created: telegram_id={telegram_id}, plan={plan_label}, customer={stripe_customer_id}")
 
     send_activation_email(email, activation_code, transaction_id, invite_link)
 
@@ -80,13 +91,13 @@ async def handle_payment_success(session):
         await bot.send_message(
             chat_id=telegram_id,
             text=f"🎉 *Payment Confirmed! Welcome to Premium Access*\n\n"
+                 f"Plan: *{plan_label}*\n\n"
                  f"Here are your access details — save these:\n\n"
                  f"🔑 Access Code: `{activation_code}`\n"
                  f"🧾 Transaction ID: `{transaction_id}`\n\n"
                  f"📺 [Join Private Channel]({invite_link})\n\n"
                  f"_Your access code and channel link have also been sent to {email}_\n\n"
-                 f"⬇️ *Recommended:* Set up login credentials below for quick future "
-                 f"access — no need to find your access code next time.",
+                 f"⬇️ *Recommended:* Set up login credentials below for quick future access.",
             parse_mode="Markdown",
             reply_markup=keyboard
         )
@@ -95,10 +106,11 @@ async def handle_payment_success(session):
 
 
 async def handle_renewal_success(invoice):
-    """Called every time a subscription renewal payment succeeds."""
+    """Called when a monthly subscription renews."""
     stripe_customer_id = invoice.get("customer")
     billing_reason = invoice.get("billing_reason")
 
+    # Skip first payment — handled by checkout.session.completed
     if billing_reason == "subscription_create":
         return
 
@@ -153,17 +165,15 @@ async def handle_payment_failed(invoice):
 
 
 async def handle_subscription_cancelled(subscription):
-    """Called when subscription is cancelled. Removes user from channel."""
+    """Called when a monthly subscription is cancelled."""
     stripe_sub_id = subscription.get("id")
     stripe_customer_id = subscription.get("customer")
 
     print(f"Cancellation received — sub_id={stripe_sub_id}, customer={stripe_customer_id}")
 
     row = get_subscriber_by_stripe_subscription(stripe_sub_id)
-
     if not row:
         row = get_subscriber_by_stripe_customer(stripe_customer_id)
-
     if not row:
         try:
             customer = stripe.Customer.retrieve(stripe_customer_id)
@@ -178,7 +188,7 @@ async def handle_subscription_cancelled(subscription):
         print(f"FATAL: No subscriber found for sub={stripe_sub_id}, customer={stripe_customer_id}")
         return
 
-    print(f"Found subscriber telegram_id={row['telegram_id']} email={row['email']} — revoking access")
+    print(f"Found subscriber telegram_id={row['telegram_id']} — revoking access")
 
     from bot.utils import revoke_user_from_channel
     deactivate_subscriber(row["telegram_id"])
