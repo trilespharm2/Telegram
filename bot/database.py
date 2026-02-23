@@ -33,6 +33,20 @@ def init_db():
         )
     """)
 
+    # Track every account that joins the channel
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS channel_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,
+            username TEXT,
+            first_name TEXT,
+            joined_at TEXT,
+            removed_at TEXT,
+            in_channel INTEGER DEFAULT 1,
+            in_database INTEGER DEFAULT 0
+        )
+    """)
+
     # Add invite_link column if upgrading from older schema
     try:
         c.execute("ALTER TABLE subscribers ADD COLUMN invite_link TEXT")
@@ -232,3 +246,41 @@ def save_inquiry(telegram_id, username, message):
     """, (telegram_id, username, message, now))
     conn.commit()
     conn.close()
+
+
+def upsert_channel_member(telegram_id, username, first_name, in_database=False):
+    """Record a user joining the channel."""
+    conn = get_conn()
+    now = datetime.utcnow().isoformat()
+    conn.execute("""
+        INSERT INTO channel_members (telegram_id, username, first_name, joined_at, in_channel, in_database)
+        VALUES (?, ?, ?, ?, 1, ?)
+        ON CONFLICT(telegram_id) DO UPDATE SET
+            in_channel = 1,
+            removed_at = NULL,
+            username = excluded.username,
+            first_name = excluded.first_name,
+            in_database = excluded.in_database
+    """, (telegram_id, username or "", first_name or "", now, 1 if in_database else 0))
+    conn.commit()
+    conn.close()
+
+def mark_member_removed(telegram_id):
+    """Record a user leaving or being removed from the channel."""
+    conn = get_conn()
+    now = datetime.utcnow().isoformat()
+    conn.execute("""
+        UPDATE channel_members SET in_channel = 0, removed_at = ?
+        WHERE telegram_id = ?
+    """, (now, telegram_id))
+    conn.commit()
+    conn.close()
+
+def get_all_channel_members():
+    """Get all accounts currently in the channel."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM channel_members WHERE in_channel = 1 ORDER BY joined_at DESC"
+    ).fetchall()
+    conn.close()
+    return rows
