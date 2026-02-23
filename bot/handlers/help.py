@@ -84,6 +84,28 @@ async def cancel_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["cancel_subscriber"] = dict(subscriber)
 
+    # One Month Access has no stripe_subscription_id — no cancellation needed
+    stripe_sub_id = (subscriber.get("stripe_subscription_id") or "").strip()
+    if not stripe_sub_id:
+        from datetime import datetime
+        expires_at = subscriber.get("expires_at", "")
+        try:
+            expires_date = datetime.fromisoformat(expires_at).strftime("%B %d, %Y")
+        except Exception:
+            expires_date = "30 days from your activation date"
+
+        back_keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+        await update.message.reply_text(
+            "ℹ️ *No Cancellation Needed*\n\n"
+            "Your *One Month Access* plan is not a recurring subscription — "
+            "it does not auto-renew and you will *not* be charged again.\n\n"
+            f"📅 Your access expires automatically on: *{expires_date}*\n\n"
+            "You don't need to do anything. Access will end on that date automatically.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(back_keyboard)
+        )
+        return ConversationHandler.END
+
     keyboard = [
         [InlineKeyboardButton("✅ Yes, Cancel My Subscription", callback_data="cancel_confirm_yes")],
         [InlineKeyboardButton("❌ No, Keep My Subscription", callback_data="cancel_confirm_no")],
