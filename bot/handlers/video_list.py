@@ -7,7 +7,7 @@ VIDEO_LIST = [
     {
         "title": "Video 1 — Introduction",
         "description": "Getting started guide",
-        "url": "https://t.me/your_channel/1"   # Replace with actual post link
+        "url": "https://t.me/c/3814300159/6"   # Replace with actual post link
     },
     {
         "title": "Video 2 — Advanced Techniques",
