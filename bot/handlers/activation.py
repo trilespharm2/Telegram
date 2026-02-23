@@ -1,36 +1,62 @@
+import re
+import stripe
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler,
                            MessageHandler, filters, CallbackQueryHandler,
                            CommandHandler)
+from bot.config import STRIPE_SECRET_KEY
 from bot.database import (get_activation_code_record, mark_code_used,
                            create_subscriber, get_subscriber, is_active_subscriber,
-                           get_conn, update_subscriber_stripe_ids)
+                           get_conn, get_subscriber_by_stripe_customer)
 from bot.utils import generate_invite_link
 from bot.handlers.start import back_to_menu
 
+stripe.api_key = STRIPE_SECRET_KEY
+
 ENTER_CODE = 1
+
+BACK = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("✅ Cancelled. Use /start to return to the menu.")
     return ConversationHandler.END
 
+def looks_like_invoice_number(text: str) -> bool:
+    """Detect Stripe invoice number format e.g. KHDEXB2Z-0001"""
+    return bool(re.match(r'^[A-Z0-9]{6,}-\d{4}$', text.upper()))
+
+async def lookup_by_invoice(invoice_number: str):
+    """Look up subscriber via Stripe invoice number."""
+    try:
+        invoices = stripe.Invoice.list(limit=100)
+        for invoice in invoices.auto_paging_iter():
+            if invoice.get("number", "").upper() == invoice_number.upper():
+                customer_id = invoice.get("customer")
+                if customer_id:
+                    subscriber = get_subscriber_by_stripe_customer(customer_id)
+                    if subscriber:
+                        return subscriber, invoice
+        return None, None
+    except Exception as e:
+        print(f"Error looking up invoice {invoice_number}: {e}")
+        return None, None
+
 async def activation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
     await query.edit_message_text(
-        "🔑 *Enter Access Code*\n\nPlease type your access code below:",
+        "🔑 *Enter Access Code*\n\n"
+        "Please type your *access code* or *invoice number* below:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(BACK)
     )
     return ENTER_CODE
 
 async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = update.message.text.strip().upper()
+    entered = update.message.text.strip()
+    code = entered.upper()
     telegram_id = update.effective_user.id
-
-    back_keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
 
     # Check if user already has active subscription
     if is_active_subscriber(telegram_id):
@@ -46,7 +72,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Check if this telegram_id has a cancelled subscription
+    # Check if cancelled subscription exists for this telegram_id
     conn = get_conn()
     cancelled = conn.execute(
         "SELECT * FROM subscribers WHERE telegram_id = ? AND is_active = 0",
@@ -68,16 +94,78 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    # ── Try as invoice number ────────────────────────────────────────
+    if looks_like_invoice_number(code):
+        await update.message.reply_text(
+            "🔍 Looking up your invoice, please wait...",
+        )
+        subscriber, invoice = await lookup_by_invoice(code)
+
+        if not subscriber:
+            await update.message.reply_text(
+                "❌ *Invoice not found.*\n\n"
+                "Please check the invoice number and try again, or enter your "
+                "12-character access code sent via Telegram and email after payment.\n\n"
+                "_Example access code: `ABC123DEF456`_",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(BACK)
+            )
+            return ENTER_CODE
+
+        if not subscriber["is_active"]:
+            keyboard = [
+                [InlineKeyboardButton("💳 Resubscribe", callback_data="subscribe")],
+                [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+            ]
+            await update.message.reply_text(
+                "⚠️ *Subscription found but cancelled.*\n\n"
+                f"Invoice: `{code}`\n\n"
+                "Please resubscribe to regain access.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return ConversationHandler.END
+
+        # Active subscription found via invoice — give channel access
+        invite_link = await generate_invite_link()
+
+        # Update telegram_id on the subscriber record if different
+        if subscriber["telegram_id"] != telegram_id:
+            conn = get_conn()
+            conn.execute(
+                "UPDATE subscribers SET telegram_id = ? WHERE stripe_customer_id = ?",
+                (telegram_id, subscriber["stripe_customer_id"])
+            )
+            conn.commit()
+            conn.close()
+
+        keyboard = [
+            [InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
+            [InlineKeyboardButton("🔐 Set Up Login Credentials", callback_data="setup_credentials")],
+            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+        ]
+        await update.message.reply_text(
+            f"✅ *Access Granted via Invoice!*\n\n"
+            f"Invoice: `{code}`\n\n"
+            f"Welcome to the premium channel! Click below to join.\n\n"
+            f"💡 _Set up login credentials for quick future access._",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return ConversationHandler.END
+
+    # ── Try as access code ───────────────────────────────────────────
     record = get_activation_code_record(code)
 
     if not record:
         await update.message.reply_text(
-            "❌ *Invalid access code.*\n\n"
-            "Please double-check your code and try again.\n\n"
-            "_Your access code was sent to you via Telegram and email after payment. "
-            "It is a 12-character code like_ `ABC123DEF456`",
+            "❌ *Invalid access code or invoice number.*\n\n"
+            "Please check and try again.\n\n"
+            "• *Access code:* 12-character code like `ABC123DEF456`\n"
+            "• *Invoice number:* format like `KHDEXB2Z-0001`\n\n"
+            "_Both were sent to you via Telegram and email after payment._",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(back_keyboard)
+            reply_markup=InlineKeyboardMarkup(BACK)
         )
         return ENTER_CODE
 
@@ -118,11 +206,11 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ *This access code has already been used.*\n\n"
             "If you believe this is an error, go to Help → Didn't Receive Access Code.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(back_keyboard)
+            reply_markup=InlineKeyboardMarkup(BACK)
         )
         return ConversationHandler.END
 
-    # Valid unused code — grant access
+    # Valid unused access code — grant access
     invite_link = await generate_invite_link()
 
     conn = get_conn()
