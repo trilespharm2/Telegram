@@ -1,7 +1,7 @@
 import logging
 from telegram import Update
-from telegram.ext import (Application, CommandHandler,
-                           CallbackQueryHandler, MessageHandler, filters,
+from telegram.ext import (Application, CommandHandler, ChatMemberHandler, CallbackQueryHandler,
+                           MessageHandler, ChatMemberHandler, filters,
                            ContextTypes, ConversationHandler)
 
 from bot.config import BOT_TOKEN, ADMIN_ID
@@ -11,7 +11,10 @@ from bot.handlers.subscribe import subscribe_conv
 from bot.handlers.activation import activation_conv
 from bot.handlers.login import login_conv, setup_credentials_conv
 from bot.handlers.video_list import video_list_handler
+from bot.handlers.admin import (subscribers_cmd, stats_cmd, members_cmd,
+                                    kick_cmd, audit_cmd, track_channel_member)
 from bot.handlers.help import help_conv
+from bot.handlers.channel_guard import guard_channel_join
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -53,26 +56,30 @@ def main():
         .build()
     )
 
-    # Conversation handlers
+    # ── Conversation handlers ────────────────────────────────────────
     app.add_handler(subscribe_conv)
     app.add_handler(activation_conv)
     app.add_handler(login_conv)
     app.add_handler(setup_credentials_conv)
     app.add_handler(help_conv)
 
-    # Command handlers
+    # ── Command handlers ─────────────────────────────────────────────
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
 
-    # Callback handlers
+    # ── Callback handlers ────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(video_list_handler, pattern="^video_list$"))
 
-    # Admin: capture file_id when admin sends video to bot
+    # ── Channel guard — ban non-subscribers who join via forwarded links
+    app.add_handler(ChatMemberHandler(guard_channel_join, ChatMemberHandler.CHAT_MEMBER))
+
+    # ── Admin: capture video file_id ─────────────────────────────────
     app.add_handler(MessageHandler(filters.VIDEO & filters.User(ADMIN_ID), capture_file_id))
 
     logger.info("Bot started — polling...")
     app.run_polling(
+        allowed_updates=Update.ALL_TYPES,  # Required to receive chat_member updates
         drop_pending_updates=True,
         poll_interval=0.5
     )
