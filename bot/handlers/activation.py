@@ -19,7 +19,7 @@ async def activation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "🔑 *Enter Activation Code*\n\nPlease type your activation code below:",
+        "🔑 *Enter Access Code*\n\nPlease type your access code below:",
         parse_mode="Markdown"
     )
     return ENTER_CODE
@@ -64,7 +64,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not record:
         await update.message.reply_text(
-            "❌ *Invalid activation code.*\n\n"
+            "❌ *Invalid access code.*\n\n"
             "Please double-check and try again, or use /start to return to the menu.",
             parse_mode="Markdown"
         )
@@ -100,8 +100,8 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "⚠️ *This activation code has already been used.*\n\n"
-            "If you believe this is an error, go to Help → Didn't receive activation code.",
+            "⚠️ *This access code has already been used.*\n\n"
+            "If you believe this is an error, go to Help → Didn't receive access code.",
             parse_mode="Markdown"
         )
         return ConversationHandler.END
