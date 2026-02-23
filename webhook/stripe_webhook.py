@@ -2,7 +2,7 @@ import stripe
 import asyncio
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from bot.config import (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
                          BOT_TOKEN, ADMIN_ID)
 from bot.database import (store_activation_code, create_subscriber,
@@ -70,19 +70,25 @@ async def handle_payment_success(session):
 
     send_activation_email(email, activation_code, transaction_id, invite_link)
 
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
+        [InlineKeyboardButton("🔐 Set Up Login Credentials", callback_data="setup_credentials")],
+    ])
+
     bot = Bot(token=BOT_TOKEN)
     try:
         await bot.send_message(
             chat_id=telegram_id,
             text=f"🎉 *Payment Confirmed! Welcome to Premium Access*\n\n"
                  f"Here are your access details — save these:\n\n"
-                 f"🔑 Activation Code: `{activation_code}`\n"
+                 f"🔑 Access Code: `{activation_code}`\n"
                  f"🧾 Transaction ID: `{transaction_id}`\n\n"
                  f"📺 [Join Private Channel]({invite_link})\n\n"
-                 f"_Your activation code and channel link have also been sent to {email}_\n\n"
-                 f"Once inside the channel, you may optionally set up login credentials "
-                 f"via the bot menu for faster future access.",
-            parse_mode="Markdown"
+                 f"_Your access code and channel link have also been sent to {email}_\n\n"
+                 f"⬇️ *Recommended:* Set up login credentials below for quick future "
+                 f"access — no need to find your access code next time.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
@@ -153,14 +159,12 @@ async def handle_subscription_cancelled(subscription):
 
     print(f"Cancellation received — sub_id={stripe_sub_id}, customer={stripe_customer_id}")
 
-    # Try every possible lookup method
     row = get_subscriber_by_stripe_subscription(stripe_sub_id)
 
     if not row:
         row = get_subscriber_by_stripe_customer(stripe_customer_id)
 
     if not row:
-        # Last resort — fetch email from Stripe and look up by email
         try:
             customer = stripe.Customer.retrieve(stripe_customer_id)
             email = customer.get("email")
