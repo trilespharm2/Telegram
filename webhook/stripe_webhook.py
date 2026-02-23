@@ -9,7 +9,7 @@ from bot.database import (store_activation_code, create_subscriber,
                             get_subscriber_by_stripe_customer,
                             get_subscriber_by_stripe_subscription,
                             get_subscriber_by_email)
-from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link
+from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link, generate_and_store_invite_link
 from bot.email_service import send_activation_email
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -64,8 +64,6 @@ async def handle_payment_success(session):
 
     activation_code = generate_activation_code()
     transaction_id = session.get("payment_intent") or generate_transaction_id()
-    invite_link = await generate_invite_link()
-
     store_activation_code(activation_code, transaction_id, email)
     create_subscriber(
         telegram_id=telegram_id,
@@ -79,6 +77,8 @@ async def handle_payment_success(session):
 
     print(f"Subscriber created: telegram_id={telegram_id}, plan={plan_label}, customer={stripe_customer_id}")
 
+    # Generate and store invite link so it can be revoked on cancellation
+    invite_link = await generate_and_store_invite_link(telegram_id)
     send_activation_email(email, activation_code, transaction_id, invite_link)
 
     keyboard = InlineKeyboardMarkup([
@@ -97,7 +97,9 @@ async def handle_payment_success(session):
                  f"🧾 Transaction ID: `{transaction_id}`\n\n"
                  f"📺 [Join Private Channel]({invite_link})\n\n"
                  f"_Your access code and channel link have also been sent to {email}_\n\n"
-                 f"⬇️ *Recommended:* Set up login credentials below for quick future access.",
+                 f"⚠️ *Important:* Your channel invite link is personal — do not forward it to others. Forwarded links will be automatically invalidated if your subscription ends.
+
+"                 f"⬇️ *Recommended:* Set up login credentials below for quick future access.",
             parse_mode="Markdown",
             reply_markup=keyboard
         )
