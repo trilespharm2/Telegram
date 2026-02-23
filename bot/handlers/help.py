@@ -15,9 +15,10 @@ from bot.handlers.start import back_to_menu
 stripe.api_key = STRIPE_SECRET_KEY
 
 # ── States ───────────────────────────────────────────────────────────
-(CANCEL_ENTER_ID, CANCEL_CONFIRM,
+(HELP_MENU,
+ CANCEL_ENTER_ID, CANCEL_CONFIRM,
  RESEND_ENTER_EMAIL,
- INQUIRY_ENTER_EMAIL, INQUIRY_ENTER_MESSAGE) = range(5)
+ INQUIRY_ENTER_EMAIL, INQUIRY_ENTER_MESSAGE) = range(6)
 
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -41,6 +42,7 @@ async def help_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return HELP_MENU
 
 # ── Cancel Membership ────────────────────────────────────────────────
 
@@ -58,7 +60,6 @@ async def cancel_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     entered = update.message.text.strip()
     telegram_id = update.effective_user.id
 
-    # Try activation code / transaction ID (uppercase)
     entered_upper = entered.upper()
     subscriber = (
         get_subscriber_by_code(entered_upper) or
@@ -66,7 +67,6 @@ async def cancel_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
         get_subscriber(telegram_id)
     )
 
-    # Try by username if nothing found
     if not subscriber:
         conn = get_conn()
         subscriber = conn.execute(
@@ -110,7 +110,6 @@ async def cancel_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE)
     stripe_sub_id = subscriber.get("stripe_subscription_id")
     cancellation_ref = None
 
-    # Cancel Stripe subscription
     if stripe_sub_id:
         try:
             result = stripe.Subscription.cancel(stripe_sub_id)
@@ -119,18 +118,15 @@ async def cancel_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE)
             print(f"Stripe cancel error: {e}")
             cancellation_ref = stripe_sub_id
 
-    # Deactivate in DB and kick from channel
     if telegram_id:
         deactivate_subscriber(telegram_id)
         await revoke_user_from_channel(telegram_id)
 
-    # Send cancellation email
     email = subscriber.get("email")
     if email:
         send_cancellation_email(email)
 
     cancelled_at = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p UTC")
-
     confirmation_text = (
         "✅ *Your subscription has been cancelled.*\n\n"
         f"📅 Cancellation Date: {cancelled_at}\n"
@@ -171,13 +167,13 @@ async def resend_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def resend_by_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = update.message.text.strip().lower()
-
-    # Look up activation code record by email
     record = get_code_by_email(email)
 
     if not record:
-        keyboard = [[InlineKeyboardButton("✏️ Write Inquiry", callback_data="write_inquiry")],
-                    [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+        keyboard = [
+            [InlineKeyboardButton("✏️ Write Inquiry", callback_data="write_inquiry")],
+            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+        ]
         await update.message.reply_text(
             "❌ *No record found for that email.*\n\n"
             "Please make sure you entered the exact email used during payment.\n\n"
@@ -187,7 +183,6 @@ async def resend_by_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Check if subscription is active or cancelled
     conn = get_conn()
     subscriber = conn.execute(
         "SELECT * FROM subscribers WHERE activation_code = ? OR transaction_id = ?",
@@ -196,15 +191,16 @@ async def resend_by_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if subscriber and subscriber["is_active"] == 0:
-        # Subscription was cancelled — return code + cancellation info
         cancelled_at = subscriber.get("expires_at", "Unknown")
         try:
             cancelled_date = datetime.fromisoformat(cancelled_at).strftime("%B %d, %Y")
         except Exception:
             cancelled_date = cancelled_at
 
-        keyboard = [[InlineKeyboardButton("💳 Resubscribe", callback_data="subscribe")],
-                    [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+        keyboard = [
+            [InlineKeyboardButton("💳 Resubscribe", callback_data="subscribe")],
+            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+        ]
         await update.message.reply_text(
             f"⚠️ *Subscription Found — Cancelled*\n\n"
             f"🔑 Activation Code: `{record['code']}`\n"
@@ -216,12 +212,13 @@ async def resend_by_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Active subscription — resend code and fresh invite link
     invite_link = await generate_invite_link()
     send_activation_email(email, record["code"], record["transaction_id"], invite_link)
 
-    keyboard = [[InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
-                [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("📺 Join Private Channel", url=invite_link)],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+    ]
     await update.message.reply_text(
         f"✅ *Here are your access details:*\n\n"
         f"🔑 Activation Code: `{record['code']}`\n"
@@ -268,7 +265,6 @@ async def inquiry_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_inquiry(telegram_id, username, message)
 
-    # Forward to admin Telegram
     try:
         await context.bot.send_message(
             chat_id=ADMIN_ID,
@@ -281,7 +277,6 @@ async def inquiry_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error forwarding inquiry to admin: {e}")
 
-    # Also send inquiry to admin email via SendGrid
     try:
         from bot.email_service import send_inquiry_email
         send_inquiry_email(inquiry_email, username, telegram_id, message)
@@ -302,9 +297,14 @@ async def inquiry_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 help_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(help_menu, pattern="^help$")],
     states={
+        HELP_MENU: [
+            CallbackQueryHandler(cancel_start, pattern="^cancel_membership$"),
+            CallbackQueryHandler(resend_start, pattern="^resend_code$"),
+            CallbackQueryHandler(inquiry_start, pattern="^write_inquiry$"),
+            CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
+        ],
         CANCEL_ENTER_ID: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_verify),
-            CallbackQueryHandler(cancel_start, pattern="^cancel_membership$"),
         ],
         CANCEL_CONFIRM: [
             CallbackQueryHandler(cancel_confirm_yes, pattern="^cancel_confirm_yes$"),
@@ -323,9 +323,6 @@ help_conv = ConversationHandler(
     fallbacks=[
         CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
         CallbackQueryHandler(help_menu, pattern="^help$"),
-        CallbackQueryHandler(cancel_start, pattern="^cancel_membership$"),
-        CallbackQueryHandler(resend_start, pattern="^resend_code$"),
-        CallbackQueryHandler(inquiry_start, pattern="^write_inquiry$"),
         CommandHandler("cancel", cancel_cmd),
     ],
     per_message=False
