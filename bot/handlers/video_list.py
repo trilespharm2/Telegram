@@ -7,8 +7,7 @@ from telegram.ext import ContextTypes
 # 3. Copy the file_id and paste it below
 # ────────────────────────────────────────────────────────────────────
 
-VIDEO_FILE_ID = "
-BAACAgEAAyEFAATjWZn_AAMGaZvWBGX5sET7j6NZBfboNayfznYAAh0GAALwN9lErsU3Id1qQSg6BA"   # Paste your file_id here
+VIDEO_FILE_ID = "BAACAgEAAyEFAATjWZn_AAMGaZvWBGX5sET7j6NZBfboNayfznYAAh0GAALwN9lErsU3Id1qQSg6BA"   # Paste your file_id here
 VIDEO_CAPTION = (
     "🎬 *Premium Video*\n\n"
     "📲 _New videos are uploaded regularly — check back often!_"
