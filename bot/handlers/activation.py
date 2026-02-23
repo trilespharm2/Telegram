@@ -85,29 +85,7 @@ async def activation_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Check if cancelled subscription exists for this telegram_id
-    conn = get_conn()
-    cancelled = conn.execute(
-        "SELECT * FROM subscribers WHERE telegram_id = ? AND is_active = 0",
-        (telegram_id,)
-    ).fetchone()
-    conn.close()
-
-    if cancelled:
-        keyboard = [
-            [InlineKeyboardButton("💳 Subscribe Now", callback_data="subscribe")],
-            [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
-        ]
-        await update.message.reply_text(
-            "⚠️ *Your subscription has been cancelled.*\n\n"
-            "You no longer have access to the premium channel.\n"
-            "Please resubscribe to regain access.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return ConversationHandler.END
-
-    # ── Try as invoice number ────────────────────────────────────────
+    # ── Invoice number check — Stripe is authoritative, skip local DB ─
     if looks_like_invoice_number(code):
         await update.message.reply_text(
             "🔍 Looking up your invoice, please wait...",
