@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (Application, CommandHandler, ChatMemberHandler,
@@ -6,6 +7,7 @@ from telegram.ext import (Application, CommandHandler, ChatMemberHandler,
 
 from bot.config import BOT_TOKEN, ADMIN_ID
 from bot.database import init_db
+from bot.recordbot.database import init_recordbot_db
 from bot.handlers.start import start, back_to_menu, main_menu_keyboard
 from bot.handlers.subscribe import subscribe_conv
 from bot.handlers.activation import activation_conv
@@ -14,6 +16,8 @@ from bot.handlers.video_list import video_list_handler
 from bot.handlers.help import help_conv
 from bot.handlers.admin import (subscribers_cmd, stats_cmd, members_cmd,
                                   kick_cmd, audit_cmd, track_channel_member)
+from bot.recordbot.handlers import recordbot_conv
+from bot.recordbot import recorder as rb_recorder
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -42,13 +46,21 @@ async def capture_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+async def post_init(application):
+    rb_recorder._ptb_bot = application.bot
+    asyncio.create_task(rb_recorder.recorder_loop())
+    logger.info("RecordBot recorder loop started")
+
+
 def main():
     init_db()
+    init_recordbot_db()
     logger.info("Database initialized")
 
     app = (
         Application.builder()
         .token(BOT_TOKEN)
+        .post_init(post_init)
         .get_updates_connect_timeout(10)
         .get_updates_read_timeout(10)
         .get_updates_write_timeout(10)
@@ -61,6 +73,7 @@ def main():
     app.add_handler(login_conv)
     app.add_handler(setup_credentials_conv)
     app.add_handler(help_conv)
+    app.add_handler(recordbot_conv)
 
     # Command handlers
     app.add_handler(CommandHandler("start", start))
