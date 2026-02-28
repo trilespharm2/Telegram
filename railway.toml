@@ -1,0 +1,8 @@
+[build]
+builder = "railpack"
+
+[build.args]
+RECORDBOT_PRICE_2H = ""
+RECORDBOT_PRICE_5H = ""
+RECORDBOT_PRICE_20H = ""
+RECORDBOT_CHANNEL_ID = ""
