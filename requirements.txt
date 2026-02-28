@@ -7,3 +7,4 @@ gunicorn==21.2.0
 telethon==1.36.0
 curl-cffi==0.7.4
  
+ 
