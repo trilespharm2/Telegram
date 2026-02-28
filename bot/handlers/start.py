@@ -13,7 +13,6 @@ def main_menu_keyboard():
         [InlineKeyboardButton("🔑 Enter Activation Code", callback_data="activation_code")],
         [InlineKeyboardButton("🔐 Login", callback_data="login")],
         [InlineKeyboardButton("🎬 View Video List", callback_data="video_list")],
-        [InlineKeyboardButton("📹 RecordBot", callback_data="recordbot")],
         [InlineKeyboardButton("❓ Help", callback_data="help")],
     ]
     return InlineKeyboardMarkup(keyboard)
