@@ -11,10 +11,14 @@ from bot.database import (store_activation_code, create_subscriber,
                             get_subscriber_by_email)
 from bot.utils import generate_activation_code, generate_transaction_id, generate_invite_link, generate_and_store_invite_link
 from bot.email_service import send_activation_email
+from bot.recordbot.database import (
+    init_recordbot_db, create_rb_user, store_rb_activation_code
+)
 
 stripe.api_key = STRIPE_SECRET_KEY
 app = Flask(__name__)
 init_db()
+init_recordbot_db()
 
 @app.route("/webhook/stripe", methods=["POST"])
 def stripe_webhook():
@@ -27,7 +31,12 @@ def stripe_webhook():
         return jsonify({"error": "Invalid signature"}), 400
 
     if event["type"] == "checkout.session.completed":
-        asyncio.run(handle_payment_success(event["data"]["object"]))
+        session_obj = event["data"]["object"]
+        service = session_obj.get("metadata", {}).get("service", "")
+        if service == "recordbot":
+            asyncio.run(handle_recordbot_payment(session_obj))
+        else:
+            asyncio.run(handle_payment_success(session_obj))
     elif event["type"] == "invoice.paid":
         asyncio.run(handle_renewal_success(event["data"]["object"]))
     elif event["type"] == "invoice.payment_failed":
@@ -97,9 +106,8 @@ async def handle_payment_success(session):
                  f"🧾 Transaction ID: `{transaction_id}`\n\n"
                  f"📺 [Join Private Channel]({invite_link})\n\n"
                  f"_Your access code and channel link have also been sent to {email}_\n\n"
-                 f"⚠️ *Important:* Your channel invite link is personal — do not forward it to others. Forwarded links will be automatically invalidated if your subscription ends.
-
-"                 f"⬇️ *Recommended:* Set up login credentials below for quick future access.",
+                 f"⚠️ *Important:* Your channel invite link is personal — do not forward it to others. Forwarded links will be automatically invalidated if your subscription ends.\n\n"
+                 f"⬇️ *Recommended:* Set up login credentials below for quick future access.",
             parse_mode="Markdown",
             reply_markup=keyboard
         )
@@ -207,6 +215,50 @@ async def handle_subscription_cancelled(subscription):
         )
     except Exception as e:
         print(f"Error notifying cancelled user: {e}")
+
+
+async def handle_recordbot_payment(session):
+    telegram_id_str = session.get("metadata", {}).get("telegram_id")
+    email = session.get("customer_email") or session.get("metadata", {}).get("email")
+    stripe_customer_id = session.get("customer", "")
+    plan_key = session.get("metadata", {}).get("plan", "")
+    credit_hours = float(session.get("metadata", {}).get("credit_hours", "0"))
+
+    if not telegram_id_str or not email:
+        print("RecordBot: Missing telegram_id or email in session metadata")
+        return
+
+    telegram_id = int(telegram_id_str)
+
+    activation_code = generate_activation_code()
+    store_rb_activation_code(activation_code, email, plan_key, credit_hours)
+    create_rb_user(telegram_id, email, activation_code, stripe_customer_id, credit_hours)
+
+    print(f"RecordBot: User created/updated — telegram_id={telegram_id}, plan={plan_key}, hours={credit_hours}")
+
+    bot = Bot(token=BOT_TOKEN)
+    try:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📹 Open RecordBot", callback_data="recordbot")],
+        ])
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=f"🎉 *RecordBot — Payment Confirmed!*\n\n"
+                 f"Plan: *{credit_hours:.0f} Hours*\n\n"
+                 f"🔑 Activation Code: `{activation_code}`\n\n"
+                 f"_Your credits have been added to your account._\n\n"
+                 f"Use the activation code to set up your account if you haven't already.",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        print(f"RecordBot: Error sending Telegram message: {e}")
+
+    try:
+        from bot.email_service import send_activation_email
+        send_activation_email(email, activation_code, f"RecordBot-{plan_key}", "")
+    except Exception as e:
+        print(f"RecordBot: Error sending email: {e}")
 
 
 @app.route("/success")
